@@ -180,50 +180,6 @@ func startRpcServer(w *wallet.Wallet, ip string, port uint16, auth string) {
 			return
 		}
 
-		height := w.GetHeight()
-
-		var page uint64 = 0
-		for {
-			txlist, err := w.GetTransactions(true, page)
-			if err != nil {
-				c.ErrorResponse(&rpc.Error{
-					Code:    internalReadFailed,
-					Message: "failed to get transactions",
-				})
-				Log.Warn(err)
-				return
-			}
-			for _, tx := range txlist.Transactions {
-				txres, err := w.GetTransaction(tx)
-				if err != nil {
-					Log.Err(err)
-					continue
-				}
-				add := false
-				for _, v := range txres.Outputs {
-					if v.Recipient == params.Subaddress.Addr && v.PaymentId == params.Subaddress.PaymentId {
-						if txres.Height == 0 || txres.Height+params.Confirmations >= height {
-							res.MempoolTotalReceived += v.Amount
-							add = true
-						} else {
-							res.TotalReceived += v.Amount
-							add = true
-						}
-					}
-				}
-				if add {
-					res.Transactions = append(res.Transactions, walletrpc.TxInfo{
-						Hash: tx,
-						Data: txres,
-					})
-				}
-			}
-			page++
-			if txlist.MaxPage <= page {
-				break
-			}
-		}
-
 		c.SuccessResponse(res)
 	})
 
