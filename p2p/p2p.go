@@ -147,10 +147,7 @@ func Start(peers []string, dataDir string) *P2P {
 func (p *P2P) Close() {
 	p.listener.Close()
 	for _, v := range p.Connections {
-		v.View(func(c *ConnData) error {
-			c.Close()
-			return nil
-		})
+		v.Close()
 	}
 
 	err := p.savePeerlist()
@@ -238,6 +235,7 @@ scanning:
 			}
 		}
 
+		Log.Debug("connecting to peer", randPeer.IP, randPeer.Port)
 		go p.startClient(randPeer.IP, randPeer.Port, private)
 	}
 }
@@ -245,12 +243,7 @@ scanning:
 // p2p must NOT be locked before calling this
 func (p *P2P) Kick(c *Connection) {
 	var ip string
-	c.Update(func(c *ConnData) error {
-		ip = c.Conn.RemoteAddr().String()
-		Log.Debugf("p2p kick %s %x", ip, c.PeerId)
-		c.Close()
-		return nil
-	})
+	c.Close()
 	p.Lock()
 	delete(p.Connections, ip)
 	p.Unlock()
@@ -273,18 +266,17 @@ func (p *P2P) sendPeerList(conn *Connection) error {
 			v.LastConnect = time.Now().Unix()
 			p.KnownPeers[i] = v
 		} else if v.Type == PEER_WHITE {
-			Log.Debugf("sendPeerList: sending %v:%v", v.IP, v.Port)
+			Log.NetDevf("sendPeerList: sending %v:%v", v.IP, v.Port)
 			s.AddUint16(v.Port)
 			s.AddString(v.IP)
 		}
 	}
 	p.RUnlock()
-	return conn.Update(func(c *ConnData) error {
-		return c.sendPacket(pack{
-			Type: 1,
-			Data: s.Output(),
-		})
+	return conn.sendPacketLock(pack{
+		Type: 1,
+		Data: s.Output(),
 	})
+
 }
 
 func (p *P2P) handleConnection(conn *Connection, private bool) error {
@@ -304,12 +296,11 @@ func (p *P2P) handleConnection(conn *Connection, private bool) error {
 		return nil
 	}()
 	if err != nil {
-		conn.Update(func(c *ConnData) error {
-			c.Close()
-			return nil
-		})
+		conn.Close()
 		return err
 	}
+
+	go conn.Writer()
 
 	go func() {
 		err := p.connectionMainHandling(conn, private, ipPort)
@@ -618,7 +609,7 @@ func (p *P2P) AddPeerToList(ip string, port uint16, force bool) bool {
 			break
 		}
 	}
-	Log.Debug("AddPeerToList", ip, port, "shouldAdd:", shouldAdd)
+	Log.Net("AddPeerToList", ip, port, "shouldAdd:", shouldAdd)
 	if shouldAdd {
 		p.KnownPeers = append(p.KnownPeers, KnownPeer{
 			IP:   ip,

@@ -121,6 +121,12 @@ func New(dataDir string) *Blockchain {
 
 	bc.BlockQueue = NewBlockQueue(bc)
 
+	// check for reorgs
+	bc.DB.Update(func(txn adb.Txn) error {
+		_, err := bc.CheckReorgs(txn, stats)
+		return err
+	})
+
 	return bc
 }
 
@@ -148,7 +154,7 @@ func (bc *Blockchain) Synchronize() {
 					break
 				}
 				if reqbl.Height != 0 && reqbl.Height < stats.TopHeight {
-					qt.BlockRequested(reqbl.Height)
+					qt.BlockDownloaded(reqbl.Height, reqbl.Hash)
 					continue
 				}
 				lastIdx := len(reqbls) - 1
@@ -229,11 +235,9 @@ func (bc *Blockchain) Synchronize() {
 			}()
 		})
 
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 }
-
-// TODO: clean up expired queue
 
 // Blockchain MUST be locked before calling this
 func (bc *Blockchain) fillQueue(qt *QueueTx, topHeight uint64) {
